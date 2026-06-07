@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+.next/
+*.log
+*.sqlite
+.DS_Store
+uploads/
+generated_cvs/
+playwright-report/
+test-results/
