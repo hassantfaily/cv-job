@@ -72,11 +72,18 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 mb-4">
               <User size={16} className="text-green-400" />
               <h2 className="font-semibold">Personal Info</h2>
+              <span className="ml-auto badge bg-green-500/20 text-green-400 text-xs">
+                {settings.user.source}
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <p className="label">Name</p>
-                <p className="font-medium">{settings.user.first_name} {settings.user.last_name}</p>
+                <p className="font-medium">{settings.user.name || "—"}</p>
+              </div>
+              <div>
+                <p className="label">Email</p>
+                <p className="font-medium">{settings.user.email || "—"}</p>
               </div>
               <div>
                 <p className="label">Phone</p>
@@ -90,6 +97,10 @@ export default function SettingsPage() {
                 <p className="label">LinkedIn</p>
                 <p className="font-medium truncate">{settings.user.linkedin_url || "—"}</p>
               </div>
+              <div>
+                <p className="label">GitHub</p>
+                <p className="font-medium truncate">{settings.user.github_url || "—"}</p>
+              </div>
             </div>
           </div>
 
@@ -101,9 +112,9 @@ export default function SettingsPage() {
                 {settings.ai.configured ? "✓ API key set" : "⚠ No API key"}
               </span>
             </div>
-            <p className="text-sm text-gray-400">Model: <span className="text-gray-200">{settings.ai.model}</span></p>
+            <p className="text-sm text-gray-400">Provider: <span className="text-gray-200">{settings.ai.provider}</span> · Model: <span className="text-gray-200">{settings.ai.model}</span></p>
             <p className="text-xs text-gray-500 mt-2">
-              Claude reads every job description and writes a completely unique, human-sounding CV and cover letter for each application.
+              GPT reads every job description and writes a completely unique, human-sounding CV and cover letter for each application.
             </p>
           </div>
 
@@ -111,7 +122,7 @@ export default function SettingsPage() {
             <h2 className="font-semibold mb-2">How to configure</h2>
             <ol className="text-sm text-gray-400 space-y-1.5">
               <li>1. Copy <code className="text-brand-300 bg-gray-800 px-1 rounded">.env.example</code> to <code className="text-brand-300 bg-gray-800 px-1 rounded">.env</code></li>
-              <li>2. Set your <code className="text-green-300 bg-gray-800 px-1 rounded">ANTHROPIC_API_KEY</code></li>
+              <li>2. Set your <code className="text-green-300 bg-gray-800 px-1 rounded">OPENAI_API_KEY</code></li>
               <li>3. Set your Gmail/iCloud App Password in <code className="text-green-300 bg-gray-800 px-1 rounded">EMAIL_PASSWORD</code></li>
               <li>4. Fill in your personal details (used for auto account creation on portals)</li>
               <li>5. Restart with <code className="text-yellow-300 bg-gray-800 px-1 rounded">docker compose restart api worker</code></li>

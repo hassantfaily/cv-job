@@ -1,19 +1,11 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://jobbot:changeme@postgres:5432/jobbot"
     REDIS_URL: str = "redis://redis:6379/0"
-    ANTHROPIC_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4.5-mini-2026-03-17"
     SECRET_KEY: str = "change-this-secret"
-
-    USER_FIRST_NAME: str = ""
-    USER_LAST_NAME: str = ""
-    USER_PHONE: str = ""
-    USER_LOCATION: str = ""
-    USER_LINKEDIN_URL: str = ""
-    USER_GITHUB_URL: str = ""
-    USER_WEBSITE: str = ""
 
     EMAIL_PROVIDER: str = "gmail"
     EMAIL_ADDRESS: str = ""

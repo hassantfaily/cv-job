@@ -20,6 +20,17 @@ class LinkedInSearchRequest(BaseModel):
     limit: int = 20
 
 
+class UserInfo(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin: str = ""
+    github: str = ""
+    website: str = ""
+
+
 class PortalApplyRequest(BaseModel):
     portal_url: str
     cv_path: str
@@ -27,6 +38,7 @@ class PortalApplyRequest(BaseModel):
     cover_letter_text: str = ""
     job_title: str = ""
     create_account: bool = False
+    user_info: UserInfo = UserInfo()
 
 
 class JobDetailRequest(BaseModel):
@@ -52,20 +64,22 @@ async def linkedin_job_details(req: JobDetailRequest):
 
 @app.post("/portal/apply")
 async def portal_apply(req: PortalApplyRequest):
+    user_info = req.user_info.model_dump()
+
     if req.create_account:
         result = await portal_agent.create_account_and_apply(
-            req.portal_url, req.cv_path, req.cover_letter_text
+            req.portal_url, req.cv_path, req.cover_letter_text, user_info
         )
         if result["success"]:
             apply_result = await portal_agent.apply_on_portal(
                 req.portal_url, req.cv_path, req.cover_letter_path,
-                req.cover_letter_text, req.job_title
+                req.cover_letter_text, req.job_title, user_info
             )
             return {"account": result, "application": apply_result}
         return {"account": result, "application": None}
 
     result = await portal_agent.apply_on_portal(
         req.portal_url, req.cv_path, req.cover_letter_path,
-        req.cover_letter_text, req.job_title
+        req.cover_letter_text, req.job_title, user_info
     )
     return result

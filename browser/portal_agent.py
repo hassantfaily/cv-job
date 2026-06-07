@@ -1,9 +1,9 @@
 """
 Portal agent: uses Playwright to apply on company portals.
 Handles account creation, form filling, and CV upload.
+User info is passed in from the parsed CV profile — nothing hardcoded.
 """
 from playwright.async_api import async_playwright, Page
-from tenacity import retry, stop_after_attempt, wait_fixed
 from config import settings
 import asyncio
 import os
@@ -30,7 +30,6 @@ async def get_browser():
 
 
 async def search_linkedin_jobs(query: str, location: str = "", limit: int = 20) -> list:
-    """Scrape LinkedIn public job listings (no login needed for basic search)."""
     pw, browser, context = await get_browser()
     jobs = []
     try:
@@ -90,11 +89,8 @@ async def apply_on_portal(
     cover_letter_path: str,
     cover_letter_text: str,
     job_title: str,
+    user_info: dict,
 ) -> dict:
-    """
-    Generic portal application handler.
-    Detects common ATS platforms and applies.
-    """
     pw, browser, context = await get_browser()
     result = {"success": False, "message": ""}
     try:
@@ -105,15 +101,13 @@ async def apply_on_portal(
         url = page.url.lower()
 
         if "greenhouse.io" in url or "boards.greenhouse" in url:
-            result = await _apply_greenhouse(page, cv_path, cover_letter_text)
+            result = await _apply_greenhouse(page, cv_path, cover_letter_text, user_info)
         elif "lever.co" in url:
-            result = await _apply_lever(page, cv_path, cover_letter_text)
-        elif "workday" in url:
-            result = await _apply_workday(page, cv_path, cover_letter_path)
-        elif "myworkdayjobs" in url:
-            result = await _apply_workday(page, cv_path, cover_letter_path)
+            result = await _apply_lever(page, cv_path, cover_letter_text, user_info)
+        elif "workday" in url or "myworkdayjobs" in url:
+            result = await _apply_workday(page, cv_path, cover_letter_path, user_info)
         else:
-            result = await _apply_generic(page, cv_path, cover_letter_text, job_title)
+            result = await _apply_generic(page, cv_path, cover_letter_text, job_title, user_info)
 
     except Exception as e:
         result = {"success": False, "message": str(e)}
@@ -123,14 +117,17 @@ async def apply_on_portal(
     return result
 
 
-async def _fill_common_fields(page: Page, cover_letter_text: str):
-    """Fill name, email, phone in any form."""
+async def _fill_common_fields(page: Page, cover_letter_text: str, user_info: dict):
+    """Fill name, email, phone, etc. using data extracted from the CV."""
     field_map = {
-        "first.name|first_name|firstname": settings.USER_FIRST_NAME,
-        "last.name|last_name|lastname": settings.USER_LAST_NAME,
-        "email": settings.EMAIL_ADDRESS,
-        "phone|telephone": settings.USER_PHONE,
-        "linkedin": settings.USER_LINKEDIN_URL,
+        "first.name|first_name|firstname|fname": user_info.get("first_name", ""),
+        "last.name|last_name|lastname|lname|surname": user_info.get("last_name", ""),
+        "email": user_info.get("email", ""),
+        "phone|telephone|mobile": user_info.get("phone", ""),
+        "linkedin": user_info.get("linkedin", ""),
+        "github": user_info.get("github", ""),
+        "website|portfolio|url": user_info.get("website", ""),
+        "location|city|address": user_info.get("location", ""),
         "cover.letter|coverletter|cover_letter": cover_letter_text,
     }
     inputs = await page.query_selector_all("input, textarea")
@@ -141,7 +138,7 @@ async def _fill_common_fields(page: Page, cover_letter_text: str):
         combined = f"{name} {placeholder} {id_attr}"
 
         for pattern, value in field_map.items():
-            if any(p in combined for p in pattern.split("|")) and value:
+            if value and any(p in combined for p in pattern.split("|")):
                 try:
                     await inp.fill(value)
                 except Exception:
@@ -149,8 +146,8 @@ async def _fill_common_fields(page: Page, cover_letter_text: str):
                 break
 
 
-async def _apply_greenhouse(page: Page, cv_path: str, cover_letter_text: str) -> dict:
-    await _fill_common_fields(page, cover_letter_text)
+async def _apply_greenhouse(page: Page, cv_path: str, cover_letter_text: str, user_info: dict) -> dict:
+    await _fill_common_fields(page, cover_letter_text, user_info)
     file_inputs = await page.query_selector_all("input[type='file']")
     if file_inputs and cv_path and os.path.exists(cv_path):
         await file_inputs[0].set_input_files(cv_path)
@@ -162,8 +159,8 @@ async def _apply_greenhouse(page: Page, cv_path: str, cover_letter_text: str) ->
     return {"success": False, "message": "No submit button found"}
 
 
-async def _apply_lever(page: Page, cv_path: str, cover_letter_text: str) -> dict:
-    await _fill_common_fields(page, cover_letter_text)
+async def _apply_lever(page: Page, cv_path: str, cover_letter_text: str, user_info: dict) -> dict:
+    await _fill_common_fields(page, cover_letter_text, user_info)
     file_inputs = await page.query_selector_all("input[type='file']")
     if file_inputs and cv_path and os.path.exists(cv_path):
         await file_inputs[0].set_input_files(cv_path)
@@ -175,7 +172,7 @@ async def _apply_lever(page: Page, cv_path: str, cover_letter_text: str) -> dict
     return {"success": False, "message": "No submit button found"}
 
 
-async def _apply_workday(page: Page, cv_path: str, cover_letter_path: str) -> dict:
+async def _apply_workday(page: Page, cv_path: str, cover_letter_path: str, user_info: dict) -> dict:
     await asyncio.sleep(2)
     file_inputs = await page.query_selector_all("input[type='file']")
     if file_inputs and cv_path and os.path.exists(cv_path):
@@ -185,8 +182,9 @@ async def _apply_workday(page: Page, cv_path: str, cover_letter_path: str) -> di
     return {"success": False, "message": "Workday requires manual steps — CV uploaded"}
 
 
-async def _apply_generic(page: Page, cv_path: str, cover_letter_text: str, job_title: str) -> dict:
-    await _fill_common_fields(page, cover_letter_text)
+async def _apply_generic(page: Page, cv_path: str, cover_letter_text: str,
+                          job_title: str, user_info: dict) -> dict:
+    await _fill_common_fields(page, cover_letter_text, user_info)
     file_inputs = await page.query_selector_all("input[type='file']")
     if file_inputs and cv_path and os.path.exists(cv_path):
         await file_inputs[0].set_input_files(cv_path)
@@ -204,11 +202,9 @@ async def create_account_and_apply(
     portal_url: str,
     cv_path: str,
     cover_letter_text: str,
+    user_info: dict,
 ) -> dict:
-    """
-    Auto-create account if portal requires login, then apply.
-    Uses the user's email as the account email.
-    """
+    """Auto-create account using info from the parsed CV, then apply."""
     pw, browser, context = await get_browser()
     result = {"success": False, "message": ""}
     try:
@@ -222,9 +218,10 @@ async def create_account_and_apply(
         if sign_up:
             await sign_up.click()
             await asyncio.sleep(2)
-            await _fill_common_fields(page, cover_letter_text)
+            await _fill_common_fields(page, cover_letter_text, user_info)
             password_inputs = await page.query_selector_all("input[type='password']")
-            generated_pwd = f"Jobbot@{settings.USER_FIRST_NAME}2024!"
+            name = user_info.get("first_name", "User")
+            generated_pwd = f"Jobbot@{name}2024!"
             for pwd_input in password_inputs:
                 await pwd_input.fill(generated_pwd)
             submit = await page.query_selector("button[type='submit'], input[type='submit']")

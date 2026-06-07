@@ -1,9 +1,9 @@
 import pdfplumber
-import anthropic
+from openai import OpenAI
 from config import settings
 import json
 
-client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 def extract_text_from_pdf(file_path: str) -> str:
     text = ""
@@ -23,6 +23,8 @@ CV TEXT:
 Return ONLY valid JSON with this structure:
 {{
   "name": "Full Name",
+  "first_name": "First",
+  "last_name": "Last",
   "email": "email@example.com",
   "phone": "phone number",
   "location": "city, country",
@@ -67,17 +69,11 @@ Return ONLY valid JSON with this structure:
   ]
 }}"""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
+    response = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
         messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
     )
 
-    response_text = message.content[0].text.strip()
-    if response_text.startswith("```"):
-        response_text = response_text.split("```")[1]
-        if response_text.startswith("json"):
-            response_text = response_text[4:]
-    response_text = response_text.strip().rstrip("```")
-
-    return {"raw_text": raw_text, "structured": json.loads(response_text)}
+    structured = json.loads(response.choices[0].message.content)
+    return {"raw_text": raw_text, "structured": structured}

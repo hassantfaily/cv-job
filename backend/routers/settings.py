@@ -1,47 +1,42 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from typing import Optional
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from database import get_db
+from models import Profile
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-class EmailSettings(BaseModel):
-    provider: str
-    address: str
-    password: str
-    display_name: str
-
-
-class UserInfo(BaseModel):
-    first_name: str
-    last_name: str
-    phone: Optional[str] = ""
-    location: Optional[str] = ""
-    linkedin_url: Optional[str] = ""
-    github_url: Optional[str] = ""
-    website: Optional[str] = ""
-
-
 @router.get("")
-async def get_settings():
+async def get_settings(db: AsyncSession = Depends(get_db)):
     from config import settings
+
+    # Pull user info from the latest parsed CV profile
+    result = await db.execute(select(Profile).order_by(desc(Profile.created_at)).limit(1))
+    profile = result.scalar_one_or_none()
+    s = (profile.structured or {}) if profile else {}
+    name = s.get("name", "")
+
     return {
         "email": {
             "provider": settings.EMAIL_PROVIDER,
             "address": settings.EMAIL_ADDRESS,
-            "display_name": settings.EMAIL_DISPLAY_NAME,
+            "display_name": settings.EMAIL_DISPLAY_NAME or name,
             "configured": bool(settings.EMAIL_ADDRESS and settings.EMAIL_PASSWORD),
         },
         "user": {
-            "first_name": settings.USER_FIRST_NAME,
-            "last_name": settings.USER_LAST_NAME,
-            "phone": settings.USER_PHONE,
-            "location": settings.USER_LOCATION,
-            "linkedin_url": settings.USER_LINKEDIN_URL,
+            "name": name,
+            "email": s.get("email", ""),
+            "phone": s.get("phone", ""),
+            "location": s.get("location", ""),
+            "linkedin_url": s.get("linkedin", ""),
+            "github_url": s.get("github", ""),
+            "source": "parsed from CV" if profile else "no CV uploaded yet",
         },
         "ai": {
-            "model": "claude-sonnet-4-6",
-            "configured": bool(settings.ANTHROPIC_API_KEY),
+            "provider": "OpenAI",
+            "model": settings.OPENAI_MODEL,
+            "configured": bool(settings.OPENAI_API_KEY),
         },
     }
 

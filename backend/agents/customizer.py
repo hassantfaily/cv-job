@@ -1,4 +1,4 @@
-import anthropic
+from openai import OpenAI
 import json
 from config import settings
 from reportlab.lib.pagesizes import A4
@@ -6,11 +6,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_CENTER
 import os
 import uuid
 
-client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 def customize_for_job(profile: dict, job: dict) -> dict:
     """Generate a tailored CV and cover letter for a specific job."""
@@ -59,20 +59,31 @@ Return ONLY valid JSON:
   "email_body": "professional email body (2-3 sentences) to attach CV and cover letter, sounds human"
 }}"""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
+    response = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
         messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
     )
 
-    text = message.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    text = text.strip().rstrip("```")
+    return json.loads(response.choices[0].message.content)
 
-    return json.loads(text)
+
+def _get_user_info(structured: dict) -> dict:
+    """Extract personal info from parsed CV structured data."""
+    name = structured.get("name", "")
+    first = structured.get("first_name") or (name.split()[0] if name else "")
+    last = structured.get("last_name") or (" ".join(name.split()[1:]) if name and len(name.split()) > 1 else "")
+    return {
+        "name": name,
+        "first_name": first,
+        "last_name": last,
+        "email": structured.get("email", settings.EMAIL_ADDRESS),
+        "phone": structured.get("phone", ""),
+        "location": structured.get("location", ""),
+        "linkedin": structured.get("linkedin", ""),
+        "github": structured.get("github", ""),
+        "website": structured.get("website", ""),
+    }
 
 
 def generate_cv_pdf(profile: dict, customization: dict, output_dir: str = "/app/generated") -> str:
@@ -81,40 +92,29 @@ def generate_cv_pdf(profile: dict, customization: dict, output_dir: str = "/app/
     filepath = os.path.join(output_dir, filename)
 
     structured = profile.get("structured", {})
+    user = _get_user_info(structured)
+
     doc = SimpleDocTemplate(filepath, pagesize=A4,
                             rightMargin=2*cm, leftMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
 
-    styles = getSampleStyleSheet()
     name_style = ParagraphStyle("name", fontSize=22, fontName="Helvetica-Bold",
                                  textColor=colors.HexColor("#1a1a2e"), spaceAfter=4, alignment=TA_CENTER)
     contact_style = ParagraphStyle("contact", fontSize=9, fontName="Helvetica",
                                     textColor=colors.HexColor("#555555"), spaceAfter=12, alignment=TA_CENTER)
     section_style = ParagraphStyle("section", fontSize=11, fontName="Helvetica-Bold",
                                     textColor=colors.HexColor("#1a1a2e"), spaceBefore=12, spaceAfter=4)
-    body_style = ParagraphStyle("body", fontSize=9.5, fontName="Helvetica",
-                                 leading=14, spaceAfter=4)
+    body_style = ParagraphStyle("body", fontSize=9.5, fontName="Helvetica", leading=14, spaceAfter=4)
     bullet_style = ParagraphStyle("bullet", fontSize=9.5, fontName="Helvetica",
                                    leading=14, leftIndent=12, spaceAfter=2)
-    job_title_style = ParagraphStyle("job_title", fontSize=10, fontName="Helvetica-Bold",
-                                      spaceAfter=0)
+    job_title_style = ParagraphStyle("job_title", fontSize=10, fontName="Helvetica-Bold", spaceAfter=0)
     job_meta_style = ParagraphStyle("job_meta", fontSize=9, fontName="Helvetica",
                                      textColor=colors.HexColor("#666666"), spaceAfter=4)
 
     story = []
+    story.append(Paragraph(user["name"], name_style))
 
-    name = structured.get("name", settings.USER_FIRST_NAME + " " + settings.USER_LAST_NAME)
-    story.append(Paragraph(name, name_style))
-
-    contacts = []
-    if structured.get("email"):
-        contacts.append(structured["email"])
-    if structured.get("phone"):
-        contacts.append(structured["phone"])
-    if structured.get("location"):
-        contacts.append(structured["location"])
-    if structured.get("linkedin"):
-        contacts.append(structured["linkedin"])
+    contacts = [c for c in [user["email"], user["phone"], user["location"], user["linkedin"]] if c]
     story.append(Paragraph(" · ".join(contacts), contact_style))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#1a1a2e")))
     story.append(Spacer(1, 6))
@@ -139,35 +139,28 @@ def generate_cv_pdf(profile: dict, customization: dict, output_dir: str = "/app/
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
         story.append(Spacer(1, 4))
         for exp in experience:
-            title = exp.get("title", "")
-            company = exp.get("company", "")
-            start = exp.get("start_date", "")
-            end = exp.get("end_date", "")
-            story.append(Paragraph(f"{title} — {company}", job_title_style))
-            story.append(Paragraph(f"{start} – {end}", job_meta_style))
+            story.append(Paragraph(f"{exp.get('title', '')} — {exp.get('company', '')}", job_title_style))
+            story.append(Paragraph(f"{exp.get('start_date', '')} – {exp.get('end_date', '')}", job_meta_style))
             for bullet in exp.get("achievements", []):
                 story.append(Paragraph(f"• {bullet}", bullet_style))
             story.append(Spacer(1, 4))
 
-    education = structured.get("education", [])
-    if education:
+    for edu in structured.get("education", []):
         story.append(Paragraph("EDUCATION", section_style))
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
         story.append(Spacer(1, 4))
-        for edu in education:
-            story.append(Paragraph(f"{edu.get('degree')} — {edu.get('institution')}", job_title_style))
-            meta = f"{edu.get('start_date', '')} – {edu.get('end_date', '')}"
-            if edu.get("gpa"):
-                meta += f" | GPA: {edu['gpa']}"
-            story.append(Paragraph(meta, job_meta_style))
+        story.append(Paragraph(f"{edu.get('degree')} — {edu.get('institution')}", job_title_style))
+        meta = f"{edu.get('start_date', '')} – {edu.get('end_date', '')}"
+        if edu.get("gpa"):
+            meta += f" | GPA: {edu['gpa']}"
+        story.append(Paragraph(meta, job_meta_style))
 
     languages = structured.get("languages", [])
     if languages:
         story.append(Paragraph("LANGUAGES", section_style))
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
         story.append(Spacer(1, 4))
-        lang_str = " · ".join([f"{l['language']} ({l['level']})" for l in languages])
-        story.append(Paragraph(lang_str, body_style))
+        story.append(Paragraph(" · ".join([f"{l['language']} ({l['level']})" for l in languages]), body_style))
 
     doc.build(story)
     return filepath
@@ -180,25 +173,21 @@ def generate_cover_letter_pdf(cover_letter_text: str, profile: dict,
     filepath = os.path.join(output_dir, filename)
 
     structured = profile.get("structured", {})
-    name = structured.get("name", settings.USER_FIRST_NAME + " " + settings.USER_LAST_NAME)
+    user = _get_user_info(structured)
 
     doc = SimpleDocTemplate(filepath, pagesize=A4,
                             rightMargin=2.5*cm, leftMargin=2.5*cm,
                             topMargin=2.5*cm, bottomMargin=2.5*cm)
 
-    styles = getSampleStyleSheet()
     header_style = ParagraphStyle("header", fontSize=13, fontName="Helvetica-Bold",
                                    textColor=colors.HexColor("#1a1a2e"), spaceAfter=4)
     meta_style = ParagraphStyle("meta", fontSize=9, fontName="Helvetica",
                                  textColor=colors.HexColor("#666666"), spaceAfter=16)
-    body_style = ParagraphStyle("body", fontSize=10.5, fontName="Helvetica",
-                                 leading=16, spaceAfter=12)
+    body_style = ParagraphStyle("body", fontSize=10.5, fontName="Helvetica", leading=16, spaceAfter=12)
 
     story = []
-    story.append(Paragraph(name, header_style))
-    contacts = " · ".join(filter(None, [
-        structured.get("email"), structured.get("phone"), structured.get("location")
-    ]))
+    story.append(Paragraph(user["name"], header_style))
+    contacts = " · ".join(filter(None, [user["email"], user["phone"], user["location"]]))
     story.append(Paragraph(contacts, meta_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#1a1a2e")))
     story.append(Spacer(1, 20))
@@ -215,7 +204,7 @@ def generate_cover_letter_pdf(cover_letter_text: str, profile: dict,
 
     story.append(Spacer(1, 20))
     story.append(Paragraph("Sincerely,", body_style))
-    story.append(Paragraph(f"<b>{name}</b>", body_style))
+    story.append(Paragraph(f"<b>{user['name']}</b>", body_style))
 
     doc.build(story)
     return filepath

@@ -106,6 +106,35 @@ def apply_job_task(self, application_id: str):
                     app.email_sent_at = datetime.now(timezone.utc)
                     app.status = "sent"
                 elif app.method == "portal" and job.portal_url:
+                    s = profile.structured or {}
+                    name = s.get("name", "")
+                    parts = name.split()
+                    user_info = {
+                        "first_name": s.get("first_name") or (parts[0] if parts else ""),
+                        "last_name": s.get("last_name") or (" ".join(parts[1:]) if len(parts) > 1 else ""),
+                        "email": s.get("email", ""),
+                        "phone": s.get("phone", ""),
+                        "location": s.get("location", ""),
+                        "linkedin": s.get("linkedin", ""),
+                        "github": s.get("github", ""),
+                        "website": s.get("website", ""),
+                    }
+                    import httpx as _httpx
+                    async with _httpx.AsyncClient(timeout=120) as hc:
+                        await hc.post(
+                            f"{settings.BROWSER_SERVICE_URL}/portal/apply",
+                            json={
+                                "portal_url": job.portal_url,
+                                "cv_path": cv_path,
+                                "cover_letter_path": cl_path,
+                                "cover_letter_text": customization.get("cover_letter", ""),
+                                "job_title": job.title,
+                                "create_account": True,
+                                "user_info": user_info,
+                            },
+                        )
+                    from datetime import datetime, timezone
+                    app.portal_applied_at = datetime.now(timezone.utc)
                     app.status = "portal_pending"
                 else:
                     app.status = "ready"
